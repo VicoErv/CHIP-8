@@ -5,7 +5,7 @@ BIN=app
 all: $(BIN)
 
 $(BIN): main.c
-	$(CC) $(CFLAGS) main.c -o $(BIN) $(pkg-config --cflags --libs sdl2)
+	$(CC) $(CFLAGS) main.c -o $(BIN) $(shell pkg-config --cflags --libs sdl2)
 
 run: $(BIN)
 	./$(BIN)
