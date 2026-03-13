@@ -7,12 +7,31 @@
 #define SCREEN_HEIGHT 32
 #define SCALE 10
 
+SDL_Keycode keymap[16] = {
+    SDLK_x,
+    SDLK_1,
+    SDLK_2,
+    SDLK_3,
+    SDLK_q,
+    SDLK_w,
+    SDLK_e,
+    SDLK_a,
+    SDLK_s,
+    SDLK_d,
+    SDLK_z,
+    SDLK_c,
+    SDLK_4,
+    SDLK_r,
+    SDLK_f,
+    SDLK_v,
+};
+
 int main(void)
 {
     srand(time(NULL));
 
     uint8_t buf[4096];
-    uint8_t V[16];
+    uint8_t V[16] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     uint16_t I = 0;
     uint16_t pc = 0x200;
     uint16_t old_pc = 0x200;
@@ -26,6 +45,30 @@ int main(void)
     uint8_t gfx[64 * 32];
 
     uint8_t keypad[16] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+
+    uint8_t fontset[80] = {
+        0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
+        0x20, 0x60, 0x20, 0x20, 0x70, // 1
+        0xF0, 0x10, 0xF0, 0x80, 0xF0, // 2
+        0xF0, 0x10, 0xF0, 0x10, 0xF0, // 3
+        0x90, 0x90, 0xF0, 0x10, 0x10, // 4
+        0xF0, 0x80, 0xF0, 0x10, 0xF0, // 5
+        0xF0, 0x80, 0xF0, 0x90, 0xF0, // 6
+        0xF0, 0x10, 0x20, 0x40, 0x40, // 7
+        0xF0, 0x90, 0xF0, 0x90, 0xF0, // 8
+        0xF0, 0x90, 0xF0, 0x10, 0xF0, // 9
+        0xF0, 0x90, 0xF0, 0x90, 0x90, // A
+        0xE0, 0x90, 0xE0, 0x90, 0xE0, // B
+        0xF0, 0x80, 0x80, 0x80, 0xF0, // C
+        0xE0, 0x90, 0x90, 0x90, 0xE0, // D
+        0xF0, 0x80, 0xF0, 0x80, 0xF0, // E
+        0xF0, 0x80, 0xF0, 0x80, 0x80  // F
+    };
+
+    for (int i = 0; i < 80; i++)
+    {
+        buf[i] = fontset[i];
+    }
 
     if (SDL_Init(SDL_INIT_VIDEO) != 0)
     {
@@ -70,9 +113,23 @@ int main(void)
             {
                 running = 0;
             }
+
+            if (e.type == SDL_KEYDOWN || e.type == SDL_KEYUP)
+            {
+                int pressed = (e.type == SDL_KEYDOWN);
+                for (int i = 0; i < 16; i++)
+                {
+                    if (e.key.keysym.sym == keymap[i])
+                    {
+                        keypad[i] = pressed;
+                    }
+                }
+            }
         }
 
-        uint16_t opcode =
+        for (int cycle = 0; cycle < 10; cycle++)
+        {
+            uint16_t opcode =
             buf[pc] << 8 |
             buf[pc + 1];
 
@@ -120,6 +177,11 @@ int main(void)
         }
         case 0x2000:
         {
+            if (sp >= 16)
+            {
+                printf("Stack overflow!\n");
+                break;
+            }
             stack[sp] = pc;
             sp++;
             pc = opcode & 0x0FFF;
@@ -243,8 +305,11 @@ int main(void)
                 break;
             }
 
-            break;
+            default:
+                printf("Unknown 0x8XYN opcode: 0x%04X\n", opcode);
+                break;
             }
+            break;
         }
         case 0x9000:
         {
@@ -276,7 +341,7 @@ int main(void)
             uint8_t x = (opcode & 0x0F00) >> 8;
             uint8_t kk = opcode & 0x0FF;
 
-            uint8_t num = rand() % 256;
+            uint8_t num = rand() % 0x00FF;
             V[x] = num & kk;
             break;
         }
@@ -296,8 +361,8 @@ int main(void)
                 {
                     uint8_t pixel = (byte >> (7 - col)) & 1;
 
-                    int sx = (x + col) % SCREEN_WIDTH;
-                    int sy = (y + row) % SCREEN_HEIGHT;
+                    int sx = (V[x] + col) % SCREEN_WIDTH;
+                    int sy = (V[y] + row) % SCREEN_HEIGHT;
 
                     uint8_t *screen_pixel = &gfx[sy * SCREEN_WIDTH + sx];
 
@@ -312,8 +377,124 @@ int main(void)
 
             break;
         }
+        case 0xE000:
+        {
+            uint8_t x = (opcode & 0x0F00) >> 8;
+            uint16_t nibble = opcode & 0x00FF;
+
+            switch (nibble)
+            {
+            case 0x9E:
+            {
+                if (keypad[V[x]])
+                {
+                    pc += 2;
+                    increment_pc = 1;
+                }
+
+                break;
+            }
+            case 0xA1:
+            {
+                if (!keypad[V[x]])
+                {
+                    pc += 2;
+                    increment_pc = 1;
+                }
+
+                break;
+            }
+
+            default:
+                printf("Unknown 0xEXNN opcode: 0x%04X\n", opcode);
+                break;
+            }
+
+            break;
+        }
+        case 0xF000:
+        {
+            uint8_t x = (opcode & 0x0F00) >> 8;
+            uint16_t nibble = opcode & 0x00FF;
+
+            switch (nibble)
+            {
+            case 0x07:
+            {
+                V[x] = delay_timer;
+                break;
+            }
+            case 0x0A:
+            {
+                increment_pc = 0;
+
+                for (int i = 0; i < 16; i++)
+                {
+                    if (keypad[i])
+                    {
+                        V[x] = i;
+                        pc += 2;
+                        increment_pc = 1;
+                        break;
+                    }
+                }
+
+                break;
+            }
+            case 0x15:
+            {
+                delay_timer = V[x];
+                break;
+            }
+            case 0x18:
+            {
+                sound_timer = V[x];
+                break;
+            }
+            case 0x1E:
+            {
+                I += V[x];
+                break;
+            }
+            case 0x29:
+            {
+                I = V[x] * 5;
+                break;
+            }
+            case 0x33:
+            {
+                buf[I] = V[x] / 100;
+                buf[I + 1] = (V[x] / 10) % 10;
+                buf[I + 2] = V[x] % 10;
+                break;
+            }
+            case 0x55:
+            {
+                for (int i = 0; i <= x; i++)
+                {
+                    buf[I + i] = V[i];
+                }
+                break;
+            }
+            case 0x65:
+            {
+                for (int i = 0; i <= x; i++)
+                {
+                    V[i] = buf[I + i];
+                }
+                break;
+            }
+
+            default:
+                printf("Unknown 0xFXNN opcode: 0x%04X\n", opcode);
+                break;
+            }
+
+            break;
+        }
+
         default:
-            printf("Unknown opcode: 0x%04X at PC=0x%04X\n", opcode, pc);
+            printf("Unknown opcode: 0x%04X\n", opcode);
             break;
         }
 
@@ -321,6 +502,12 @@ int main(void)
         {
             pc += 2;
         }
+        }
+
+        if (delay_timer > 0)
+            delay_timer--;
+        if (sound_timer > 0)
+            sound_timer--;
 
         SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
         SDL_RenderClear(ren);
